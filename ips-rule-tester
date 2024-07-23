@@ -1,0 +1,220 @@
+import subprocess
+from termcolor import colored
+
+def test_protocol(protocol, ip):
+    try:
+        if protocol == 'icmp':
+            # ICMP test
+            ping_output = subprocess.check_output(['ping', '-c', '1', ip], stderr=subprocess.STDOUT, universal_newlines=True)
+            if "100% packet loss" in ping_output or "0 received" in ping_output:
+                message = f"ICMP test failed! ICMP might be blocked by IPS.\n"
+                message += f" Possibly traffic from {ip} for ICMP is restricted or in case of NIPS traffic for ICMP for all hosts is blocked.\n"
+                message += f" drop ICMP any any -> HOME_NET any (msg:'my custom icmp rule'; sid:7; rev:1;)\n"
+                message += f" Reason: {ping_output}"
+                return True, message
+
+            else:
+                return False, f"ICMP test successful! ICMP is allowed.\n{ping_output}"
+        elif protocol == 'http':
+            # http test
+            try:
+                http_output = subprocess.check_output(['curl', '-I' ,f'http://{ip}'], stderr=subprocess.STDOUT, timeout=10, universal_newlines=True)
+                return False, f"HTTP test successful! HTTP is allowed.\n{http_output}"
+            except subprocess.CalledProcessError as e:
+                output = e.output.strip()
+                if ("Failed to connect" in output or "Couldn't connect" in output):
+                    if "Upload" not in output or "Speed" not in output or "Received" not in output:
+                        message = f"Failed to connect to remote host on port 80. HTTP connection likely blocked by IPS.\n"
+                        message += f" Possibly traffic from {ip} on port 80 is restricted or in case of NIPS traffic on port 80 for all hosts is blocked.\n"
+                        message += f" drop tcp any any -> HOME_NET 80 (msg:'my custom http rule'; sid:1; rev:1;)\n"
+                        message += f" Reason: {output}"
+                        return True, message
+                    else:
+                        return False, f"Something went wrong possibly NOT because of IPS:\n{output}"
+                else:
+                    return False, f"Something went wrong possibly NOT because of IPS:\n{output}"
+            except subprocess.TimeoutExpired:
+                message = f" HTTP command timed out. HTTP connection may be blocked by IPS.\n"
+                message += f" Possibly traffic from {ip} on port 80 is restricted or in case of NIPS traffic on port 80 for all hosts is blocked.\n"
+                message += f" drop tcp any any -> HOME_NET 80 (msg:'my custom http rule'; sid:1; rev:1;)\n"
+                return True, message
+
+
+        elif protocol == 'https':
+
+            # https test
+            try:
+                http_output = subprocess.check_output(['curl', '-I' ,f'https://{ip}'], stderr=subprocess.STDOUT, timeout=10, universal_newlines=True)
+                return False, f"HTTPS test successful! HTTPS is allowed.\n{http_output}"
+            except subprocess.CalledProcessError as e:
+                output = e.output.strip()
+                if ("Failed to connect" in output or "Couldn't connect" in output):
+                    if "Upload" not in output or "Speed" not in output or "Received" not in output:
+                        message = f"Failed to connect to remote host on port 443. HTTPS connection likely blocked by IPS.\n"
+                        message += f" Possibly traffic from {ip} on port 443 is restricted or in case of NIPS traffic on port 443 for all hosts is blocked.\n"
+                        message += f" drop tcp any any -> HOME_NET 443 (msg:'my custom https rule'; sid:2; rev:1;)\n"
+                        message += f" Reason: {output}"
+                        return True, message
+                    else:
+                        return False, f"Something went wrong possibly NOT because of IPS:\n{output}"
+                else:
+                    return False, f"Something went wrong possibly NOT because of IPS:\n{output}"
+            except subprocess.TimeoutExpired:
+                message = f"HTTPS command timed out. HTTPS connection may be blocked by IPS.\n"
+                message += f" Possibly traffic from {ip} on port 443 is restricted or in case of NIPS traffic on port 443 for all hosts is blocked.\n"
+                message += f" drop tcp any any -> HOME_NET 443 (msg:'my custom https rule'; sid:2; rev:1;)\n"
+                return True, message
+
+        elif protocol == 'ssh':
+            # SSH test
+            try:
+                ssh_output = subprocess.check_output(['ssh', f'root@{ip}', 'exit'], stderr=subprocess.STDOUT, timeout=10, universal_newlines=True)
+                return False, f"SSH test successful! SSH is allowed.\n{ssh_output}"
+            except subprocess.CalledProcessError as e:
+                output = e.output.strip()
+                if "Connection closed by remote host" in output:
+                    message = f"Connection closed by remote host. SSH connection likely blocked by IPS.\n"
+                    message += f" Possibly traffic from {ip} on port 22 is restricted or in case of NIPS traffic on port 22 for all hosts is blocked.\n"
+                    message += f" drop tcp any any -> HOME_NET 22 (msg:'my custom ssh rule'; sid:3; rev:1;)\n"
+                    message += f" Reason: {output}"
+                    return True, message
+                else:
+                    return True, f"SSH connection failed: \n{output}"
+            except subprocess.TimeoutExpired:
+                message = f"SSH command timed out. SSH connection may be blocked by IPS.\n"
+                message += f" Possibly traffic from {ip} on port 22 is restricted or in case of NIPS traffic on port 22 for all hosts is blocked.\n"
+                message += f" drop tcp any any -> HOME_NET 22 (msg:'my custom ssh rule'; sid:3; rev:1;)\n"
+                return True, message
+
+
+        # elif protocol == 'telnet':
+        #     # Telnet test
+        #     try:
+        #         telnet_output = subprocess.check_output(['telnet', ip, '23'], stderr=subprocess.STDOUT, timeout=10, universal_newlines=True)
+        #         return False, f"Telnet test successful! Telnet is allowed.\n{telnet_output}"
+        #     except subprocess.CalledProcessError as e:
+        #         output = e.output.strip()
+        #         if "Connection closed by foreign host" in output:
+        #             message = f"Connection closed by foreign host. Telnet connection likely blocked by IPS\n"
+        #             message += f" Possibly traffic from {ip} on port 23 is restricted or in case of NIPS traffic on port 23 for all hosts is blocked.\n"
+        #             message += f" drop tcp any any -> HOME_NET 23 (msg:'my custom telnet rule'; sid:4; rev:1;)\n"
+        #             message += f" Reason: {output}"
+        #             return True, message
+        #         else:
+        #             return True, f"Telnet connection failed: \n{output}"
+        #     except subprocess.TimeoutExpired:
+        #         message = f"Telnet command timed out. Telnet connection may be blocked by IPS.\n"
+        #         message += f" Possibly traffic from {ip} on port 23 is restricted or in case of NIPS traffic on port 23 for all hosts is blocked.\n"
+        #         message += f" drop tcp any any -> HOME_NET 23 (msg:'my custom telnet rule'; sid:4; rev:1;)"
+        #         return True, message
+        else:
+            return True, "Invalid protocol selection."
+        
+    except subprocess.CalledProcessError as e:
+        return True, f"{protocol.upper()} test failed! An error occurred:\n{e.output}"
+    except Exception as e:
+        return True, f"{protocol.upper()} test failed! An unexpected error occurred:\n{str(e)}"
+
+if __name__ == "__main__":
+    print("Welcome to Suricata IPS Rule Tester")
+
+    ip = "192.168.240.129"
+    while True:
+        print("\nSelect a protocol to test:")
+        print("1. ICMP")
+        print("2. HTTP")
+        print("3. HTTPS")
+        print("4. SSH")
+        # print("5. Telnet")
+        print("6. Exit")
+
+        choice = input("Enter your choice (1/2/3/4/5/6): ")
+
+        if choice == '1':
+            blocked, message = test_protocol('icmp', ip)
+            if blocked:
+                print(colored("----------------------------------------------------------", 'red'))
+                print(colored("ICMP connection blocked by IPS. Reason:", 'red'))
+                print(colored("----------------------------------------------------------", 'red'))
+                print(colored(message, 'red'))
+                print(colored("----------------------------------------------------------", 'red'))
+            else:
+                print(colored("----------------------------------------------------------", 'green'))
+                print(colored("ICMP connection allowed.", 'green'))
+                print(colored("----------------------------------------------------------", 'green'))
+                print(colored(message, 'green'))
+                print(colored("----------------------------------------------------------", 'green'))
+
+
+        elif choice == '2':
+            blocked, message = test_protocol('http', ip)
+            if blocked:
+                print(colored("----------------------------------------------------------", 'red'))
+                print(colored("HTTP connection blocked by IPS. Reason:", 'red'))
+                print(colored("----------------------------------------------------------", 'red'))
+                print(colored(message, 'red'))
+                print(colored("----------------------------------------------------------", 'red'))
+            else:
+                print(colored("----------------------------------------------------------", 'green'))
+                print(colored("HTTP connection allowed.", 'green'))
+                print(colored("----------------------------------------------------------", 'green'))
+                print(colored(message, 'green'))
+                print(colored("----------------------------------------------------------", 'green'))
+
+
+        elif choice == '3':
+            blocked, message = test_protocol('https', ip)
+            if blocked:
+                print(colored("----------------------------------------------------------", 'red'))
+                print(colored("HTTPS connection blocked by IPS. Reason:", 'red'))
+                print(colored("----------------------------------------------------------", 'red'))
+                print(colored(message, 'red'))
+                print(colored("----------------------------------------------------------", 'red'))
+
+            else:
+                print(colored("----------------------------------------------------------", 'green'))
+                print(colored("HTTPS connection allowed.", 'green'))
+                print(colored("----------------------------------------------------------", 'green'))
+                print(colored(message, 'green'))
+                print(colored("----------------------------------------------------------", 'green'))
+
+        elif choice == '4':
+            blocked, message = test_protocol('ssh', ip)
+            if blocked:
+                print(colored("----------------------------------------------------------", 'red'))
+                print(colored("SSH connection blocked by IPS. Reason:", 'red'))
+                print(colored("----------------------------------------------------------", 'red'))
+                print(colored(message, 'red'))
+                print(colored("----------------------------------------------------------", 'red'))
+            else:
+                print(colored("----------------------------------------------------------", 'green'))
+                print(colored("SSH connection allowed.", 'green'))
+                print(colored("----------------------------------------------------------", 'green'))
+                print(colored(message, 'green'))
+                print(colored("----------------------------------------------------------", 'green'))
+
+        # elif choice == '5':
+        #     blocked, message = test_protocol('telnet', ip)
+        #     if blocked:
+        #         print(colored("----------------------------------------------------------", 'red'))
+        #         print(colored("Telnet connection blocked by IPS. Reason:", 'red'))
+        #         print(colored("----------------------------------------------------------", 'red'))
+        #         print(colored(message, 'red'))
+        #         print(colored("----------------------------------------------------------", 'red'))
+        #     else:
+        #         print(colored("----------------------------------------------------------", 'green'))
+        #         print(colored("Telnet connection allowed.", 'green'))
+        #         print(colored("----------------------------------------------------------", 'green'))
+        #         print(colored(message, 'green'))
+        #         print(colored("----------------------------------------------------------", 'green'))
+
+        elif choice == '6':
+            print(colored("----------------------------------------------------------", 'red'))
+            print("Exiting...")
+            print(colored("----------------------------------------------------------", 'red'))
+            break
+        else:
+            print(colored("----------------------------------------------------------", 'red'))
+            print("Invalid choice. Please select again.4")
+            print(colored("----------------------------------------------------------", 'red'))
+
